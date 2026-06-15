@@ -64,38 +64,30 @@ def normalize_image(image: np.ndarray) -> np.ndarray:
 
 
 def load_nifti(file: Union[str, Path, BinaryIO]) -> np.ndarray:
-    """Load a NIfTI tomogram and normalize it to the range [0, 1].
-
-    Args:
-        file: Path or binary file-like object containing a ``.nii`` or
-            ``.nii.gz`` volume.
-
-    Returns:
-        A normalized three-dimensional ``float32`` NumPy array.
-
-    Raises:
-        ValueError: If the loaded NIfTI data is not three-dimensional.
-        RuntimeError: If nibabel cannot read the supplied file.
-    """
+    """Load a NIfTI tomogram and normalize it to the range [0, 1]."""
 
     try:
         if isinstance(file, (str, Path)):
             nifti_image = nib.load(str(file))
         else:
-            suffix = (
-                ".nii.gz"
-                if str(getattr(file, "name", "")).lower().endswith(".nii.gz")
-                else ".nii"
-            )
-            with NamedTemporaryFile(suffix=suffix) as temporary_file:
+            file_name = str(getattr(file, "name", "")).lower()
+            suffix = ".nii.gz" if file_name.endswith(".nii.gz") else ".nii"
+
+            with NamedTemporaryFile(suffix=suffix, delete=False) as temporary_file:
                 file.seek(0)
                 temporary_file.write(file.read())
-                temporary_file.flush()
-                nifti_image = nib.load(temporary_file.name)
+                temporary_path = temporary_file.name
+
+            nifti_image = nib.load(temporary_path)
+
     except Exception as exc:
-        raise RuntimeError("Не удалось прочитать NIfTI-файл.") from exc
+        raise RuntimeError(f"Не удалось прочитать NIfTI-файл: {exc}") from exc
 
     volume = np.asanyarray(nifti_image.dataobj, dtype=np.float32)
+
+    if volume.ndim == 4:
+        volume = volume[..., 0]
+
     if volume.ndim != 3:
         raise ValueError(f"Ожидалась 3D-томограмма, получена размерность {volume.shape}.")
 
