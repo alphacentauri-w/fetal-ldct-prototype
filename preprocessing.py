@@ -1,16 +1,21 @@
-"""Utilities for preprocessing uploaded MRI slices.
+"""Utilities for preprocessing uploaded MRI slices and NIfTI tomograms.
 
 The functions in this module intentionally keep preprocessing simple and
 transparent for a prototype: convert an input image to grayscale, normalize the
 intensity range, and resize it to a fixed square resolution expected by the
-synthetic CT generation pipeline.
+synthetic CT generation pipeline. NIfTI volumes are loaded as normalized 3D
+arrays so that the Streamlit app can pass a selected 2D slice into the same
+pipeline.
 """
 
 from __future__ import annotations
 
-from typing import Tuple
+from pathlib import Path
+from tempfile import NamedTemporaryFile
+from typing import BinaryIO, Tuple, Union
 
 import cv2
+import nibabel as nib
 import numpy as np
 from PIL import Image
 
@@ -43,7 +48,12 @@ def normalize_image(image: np.ndarray) -> np.ndarray:
         avoid division by zero.
     """
 
-    image_float = image.astype(np.float32)
+    image_float = np.nan_to_num(
+        image.astype(np.float32),
+        nan=0.0,
+        posinf=0.0,
+        neginf=0.0,
+    )
     min_value = float(np.min(image_float))
     max_value = float(np.max(image_float))
 
@@ -51,6 +61,45 @@ def normalize_image(image: np.ndarray) -> np.ndarray:
         return np.zeros_like(image_float, dtype=np.float32)
 
     return ((image_float - min_value) / (max_value - min_value)).astype(np.float32)
+
+
+def load_nifti(file: Union[str, Path, BinaryIO]) -> np.ndarray:
+    """Load a NIfTI tomogram and normalize it to the range [0, 1].
+
+    Args:
+        file: Path or binary file-like object containing a ``.nii`` or
+            ``.nii.gz`` volume.
+
+    Returns:
+        A normalized three-dimensional ``float32`` NumPy array.
+
+    Raises:
+        ValueError: If the loaded NIfTI data is not three-dimensional.
+        RuntimeError: If nibabel cannot read the supplied file.
+    """
+
+    try:
+        if isinstance(file, (str, Path)):
+            nifti_image = nib.load(str(file))
+        else:
+            suffix = (
+                ".nii.gz"
+                if str(getattr(file, "name", "")).lower().endswith(".nii.gz")
+                else ".nii"
+            )
+            with NamedTemporaryFile(suffix=suffix) as temporary_file:
+                file.seek(0)
+                temporary_file.write(file.read())
+                temporary_file.flush()
+                nifti_image = nib.load(temporary_file.name)
+    except Exception as exc:
+        raise RuntimeError("Не удалось прочитать NIfTI-файл.") from exc
+
+    volume = np.asanyarray(nifti_image.dataobj, dtype=np.float32)
+    if volume.ndim != 3:
+        raise ValueError(f"Ожидалась 3D-томограмма, получена размерность {volume.shape}.")
+
+    return normalize_image(volume)
 
 
 def resize_image(image: np.ndarray, size: Tuple[int, int] = DEFAULT_IMAGE_SIZE) -> np.ndarray:
@@ -68,17 +117,27 @@ def resize_image(image: np.ndarray, size: Tuple[int, int] = DEFAULT_IMAGE_SIZE) 
     return resized.astype(np.float32)
 
 
-def preprocess_mri_slice(image: Image.Image, size: Tuple[int, int] = DEFAULT_IMAGE_SIZE) -> np.ndarray:
+def preprocess_mri_slice(
+    image: Union[Image.Image, np.ndarray],
+    size: Tuple[int, int] = DEFAULT_IMAGE_SIZE,
+) -> np.ndarray:
     """Run the complete MRI preprocessing pipeline.
 
     Args:
-        image: Uploaded MRI slice in PNG or JPG format.
+        image: Uploaded MRI slice in PNG/JPG format or a 2D NumPy slice from a
+            NIfTI tomogram.
         size: Target output dimensions as ``(width, height)``.
 
     Returns:
         A normalized and resized grayscale image with values in [0, 1].
     """
 
-    grayscale = pil_to_grayscale_array(image)
-    normalized = normalize_image(grayscale)
+    if isinstance(image, Image.Image):
+        image_array = pil_to_grayscale_array(image)
+    else:
+        image_array = np.asarray(image, dtype=np.float32)
+        if image_array.ndim != 2:
+            raise ValueError(f"Ожидался 2D-срез, получена размерность {image_array.shape}.")
+
+    normalized = normalize_image(image_array)
     return resize_image(normalized, size=size)

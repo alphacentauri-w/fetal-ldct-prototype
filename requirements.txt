@@ -4,3 +4,4 @@ numpy>=1.26
 scikit-image>=0.22
 Pillow>=10.0
 pandas>=2.0
+nibabel>=5.2
