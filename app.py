@@ -52,7 +52,7 @@ def main() -> None:
     st.title("Прототип генерации синтетических НДКТ-подобных изображений плода")
     st.markdown(
         "Загрузите МРТ-срез в формате PNG/JPG или медицинскую томограмму "
-        "NIfTI (.nii, .nii.gz). Для NIfTI можно выбрать номер среза томограммы."
+        "NIfTI (.nii, .nii.gz). Для NIfTI отображается количество срезов томограммы."
     )
 
     uploaded_file = st.file_uploader(
@@ -78,17 +78,15 @@ def main() -> None:
     try:
         if is_nifti:
             volume = load_nifti(uploaded_file)
-            st.write(f"Размерность томограммы: `{volume.shape}`")
-            slice_index = st.slider(
-                "Номер среза",
-                min_value=0,
-                max_value=volume.shape[2] - 1,
-                value=volume.shape[2] // 2,
-                step=1,
+            slice_count = volume.shape[2] if volume.ndim == 3 else 1
+            st.write(
+                f"Размерность томограммы: `{volume.shape}` · "
+                f"Срезов в файле: `{slice_count}`"
             )
-            selected_slice = volume[:, :, slice_index]
+            slice_index = slice_count // 2
+            selected_slice = volume[:, :, slice_index] if volume.ndim == 3 else volume
             if not np.any(selected_slice > 0):
-                st.error("Выбранный срез пустой. Выберите другой срез томограммы.")
+                st.error("Средний срез томограммы пустой. Загрузите файл с непустым срезом.")
                 return
             preprocessed_mri = preprocess_mri_slice(selected_slice)
         else:
@@ -114,9 +112,21 @@ def main() -> None:
     metrics_table = pd.DataFrame([metric_values]).round(4)
 
     col_mri, col_ct, col_ldct = st.columns(3)
-    col_mri.image(image_to_uint8(preprocessed_mri), caption="Предобработанный МРТ-срез", use_container_width=True)
-    col_ct.image(image_to_uint8(synthetic_ct), caption="Синтетическое КТ", use_container_width=True)
-    col_ldct.image(image_to_uint8(synthetic_ldct), caption="Синтетическое НДКТ", use_container_width=True)
+    col_mri.image(
+        image_to_uint8(preprocessed_mri),
+        caption="Предобработанный МРТ-срез",
+        use_column_width=True,
+    )
+    col_ct.image(
+        image_to_uint8(synthetic_ct),
+        caption="Синтетическое КТ",
+        use_column_width=True,
+    )
+    col_ldct.image(
+        image_to_uint8(synthetic_ldct),
+        caption="Синтетическое НДКТ",
+        use_column_width=True,
+    )
 
     st.subheader("Метрики качества: синтетическое КТ vs синтетическое НДКТ")
     st.dataframe(metrics_table, use_container_width=True)
