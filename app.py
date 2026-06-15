@@ -176,7 +176,13 @@ def main() -> None:
         seed=int(random_seed),
     )
     metric_values = calculate_metrics(synthetic_ct, synthetic_ldct)
-    metrics_table = pd.DataFrame([metric_values]).round(4)
+    metrics_table = (
+        pd.DataFrame([metric_values])
+        .round(4)
+        .style.hide(axis="index")
+        .set_properties(**{"text-align": "center"})
+        .set_table_styles([{"selector": "th", "props": [("text-align", "center")]}])
+    )
 
     col_mri, col_ct, col_ldct = st.columns(3)
     col_mri.image(
