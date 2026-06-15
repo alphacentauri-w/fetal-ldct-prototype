@@ -71,6 +71,29 @@ def main() -> None:
     """Run the Streamlit user interface."""
 
     st.set_page_config(page_title="MRI → Synthetic LDCT Prototype", layout="wide")
+    st.markdown(
+        """
+        <style>
+        #MainMenu {
+            visibility: hidden;
+        }
+
+        [data-testid="stHeader"],
+        [data-testid="stToolbar"],
+        [data-testid="stDecoration"],
+        [data-testid="stStatusWidget"],
+        footer {
+            visibility: hidden;
+            height: 0;
+        }
+
+        .stDeployButton {
+            display: none;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
     st.title("Прототип генерации синтетических НДКТ-подобных изображений плода")
     st.markdown(
         "Загрузите МРТ-срез в формате PNG/JPG или медицинскую томограмму "
