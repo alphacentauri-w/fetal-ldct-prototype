@@ -14,7 +14,7 @@ from PIL import Image
 from gan_module import generate_synthetic_ct
 from ldct_simulator import simulate_low_dose_ct
 from metrics import calculate_metrics
-from preprocessing import preprocess_mri_slice
+from preprocessing import load_nifti, preprocess_mri_slice
 
 OUTPUT_DIR = Path("outputs")
 
@@ -51,11 +51,14 @@ def main() -> None:
     st.set_page_config(page_title="MRI → Synthetic LDCT Prototype", layout="wide")
     st.title("Прототип генерации синтетических НДКТ-подобных изображений плода")
     st.markdown(
-        "Загрузите МРТ-срез в формате PNG или JPG. Приложение выполнит "
-        "предобработку, создаст КТ-подобное изображение и сымитирует низкодозовую КТ."
+        "Загрузите МРТ-срез в формате PNG/JPG или медицинскую томограмму "
+        "NIfTI (.nii, .nii.gz). Для NIfTI можно выбрать номер среза томограммы."
     )
 
-    uploaded_file = st.file_uploader("Загрузите МРТ-срез", type=["png", "jpg", "jpeg"])
+    uploaded_file = st.file_uploader(
+        "Загрузите МРТ-срез или томограмму",
+        type=["png", "jpg", "jpeg", "nii", "nii.gz"],
+    )
 
     with st.sidebar:
         st.header("Параметры НДКТ")
@@ -69,8 +72,35 @@ def main() -> None:
         st.info("Ожидается загрузка изображения для запуска прототипа.")
         return
 
-    pil_image = Image.open(uploaded_file)
-    preprocessed_mri = preprocess_mri_slice(pil_image)
+    file_name = uploaded_file.name.lower()
+    is_nifti = file_name.endswith((".nii", ".nii.gz"))
+
+    try:
+        if is_nifti:
+            volume = load_nifti(uploaded_file)
+            st.write(f"Размерность томограммы: `{volume.shape}`")
+            slice_index = st.slider(
+                "Номер среза",
+                min_value=0,
+                max_value=volume.shape[2] - 1,
+                value=volume.shape[2] // 2,
+                step=1,
+            )
+            selected_slice = volume[:, :, slice_index]
+            if not np.any(selected_slice > 0):
+                st.error("Выбранный срез пустой. Выберите другой срез томограммы.")
+                return
+            preprocessed_mri = preprocess_mri_slice(selected_slice)
+        else:
+            pil_image = Image.open(uploaded_file)
+            preprocessed_mri = preprocess_mri_slice(pil_image)
+    except ValueError as exc:
+        st.error(str(exc))
+        return
+    except Exception as exc:
+        st.error(f"Файл не читается или имеет неподдерживаемый формат: {exc}")
+        return
+
     synthetic_ct = generate_synthetic_ct(preprocessed_mri)
     synthetic_ldct = simulate_low_dose_ct(
         synthetic_ct,
