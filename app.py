@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
 import numpy as np
 import pandas as pd
@@ -23,6 +23,28 @@ def image_to_uint8(image: np.ndarray) -> np.ndarray:
     """Convert a normalized floating-point image to ``uint8`` for display/saving."""
 
     return (np.clip(image, 0.0, 1.0) * 255).astype(np.uint8)
+
+
+def get_slice_count(volume_shape: Tuple[int, int, int], axis: int) -> int:
+    """Return the number of available 2D slices along a NIfTI axis."""
+
+    return int(volume_shape[axis])
+
+
+def extract_nifti_slice(volume: np.ndarray, axis: int, slice_index: int) -> np.ndarray:
+    """Extract a 2D slice from a normalized 3D NIfTI volume."""
+
+    if volume.ndim != 3:
+        raise ValueError(f"Ожидалась 3D-томограмма, получена размерность {volume.shape}.")
+
+    if axis == 0:
+        return volume[slice_index, :, :]
+    if axis == 1:
+        return volume[:, slice_index, :]
+    if axis == 2:
+        return volume[:, :, slice_index]
+
+    raise ValueError(f"Неподдерживаемая ось среза: {axis}.")
 
 
 def save_results(
@@ -78,16 +100,38 @@ def main() -> None:
     try:
         if is_nifti:
             volume = load_nifti(uploaded_file)
-            slice_count = volume.shape[2] if volume.ndim == 3 else 1
+            axis_labels = {
+                "Аксиальная (ось Z)": 2,
+                "Корональная (ось Y)": 1,
+                "Сагиттальная (ось X)": 0,
+            }
+            axis_label = st.selectbox(
+                "Плоскость среза",
+                options=list(axis_labels.keys()),
+                help="Выберите направление, в котором будет извлечен 2D-срез из 3D-томограммы.",
+            )
+            slice_axis = axis_labels[axis_label]
+            slice_count = get_slice_count(volume.shape, slice_axis)
+            default_slice_index = slice_count // 2
+
             st.write(
                 f"Размерность томограммы: `{volume.shape}` · "
-                f"Срезов в файле: `{slice_count}`"
+                f"Срезов в выбранной плоскости: `{slice_count}`"
             )
-            slice_index = slice_count // 2
-            selected_slice = volume[:, :, slice_index] if volume.ndim == 3 else volume
+            slice_index = st.slider(
+                "Номер среза",
+                min_value=0,
+                max_value=slice_count - 1,
+                value=default_slice_index,
+                step=1,
+                help="Перемещайте slider, чтобы выбрать нужный срез томограммы для обработки.",
+            )
+            selected_slice = extract_nifti_slice(volume, slice_axis, slice_index)
             if not np.any(selected_slice > 0):
-                st.error("Средний срез томограммы пустой. Загрузите файл с непустым срезом.")
-                return
+                st.warning(
+                    "Выбранный срез пустой или почти не содержит сигнала. "
+                    "Попробуйте другой номер среза или плоскость."
+                )
             preprocessed_mri = preprocess_mri_slice(selected_slice)
         else:
             pil_image = Image.open(uploaded_file)
